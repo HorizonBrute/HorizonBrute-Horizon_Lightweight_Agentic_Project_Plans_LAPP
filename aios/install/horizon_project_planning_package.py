@@ -1,0 +1,384 @@
+#!/usr/bin/env python3
+"""horizon_project_planning_package.py — install / uninstall / status for the
+Horizon Agentic Project Planning package.
+
+This is a SEPARATE package from the Horizon AIOS core. It deploys the /project-plan skill into a
+Horizon AIOS instance and registers itself in the machine-local deployed-packages registry so the
+AIOS sync can keep it backed up and updatable.
+
+Cross-platform, standard-library only (Python 3.8+). Mirrors the horizon_aios_*.py tooling style but
+uses the package-scoped horizon_project_planning_* name (it is not part of the OS core).
+
+Subcommands:
+  install     Deploy the skill + kit, inject the context pointer, and register the package.
+  uninstall   Reverse a deploy. Leaves the package clone and any scaffolded project plans in place.
+  status      Print the registry and what is currently deployed.
+
+Locations (resolved from env, overridable with --horizon-root):
+  HORIZON_ROOT         AIOS root
+  HORIZON_SYSTEM       <root>/horizon_system         (expected clone home: <system>/deployed_packages/)
+  HORIZON_ETC          <system>/ai_os_etc            (registry lives here)
+  HORIZON_SKILLS_BIN   <system>/skills_bin           (skill deploy target)
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+PACKAGE_NAME = "horizon_agentic_project_planning"
+SKILL_NAME = "project-plan"
+# Canonical upstream for this package — where deployments pull updates from and clone by default.
+DEFAULT_UPSTREAM = "https://github.com/HorizonBrute/HorizonBrute-Horizon_Lightweight_Agentic_Project_Plans_LAPP"
+REGISTRY_NAME = "horizon_deployed_packages.local.json"
+REGISTRY_SCHEMA = "horizon_deployed_packages/v1"
+ADMIN_GUIDE_NAME = "horizon_project_planning_guide.local.md"
+CONTEXT_MARKER = "horizon-agentic-project-planning"
+BEGIN_MARKER = f"<!-- BEGIN {CONTEXT_MARKER}"
+END_MARKER = f"<!-- END {CONTEXT_MARKER} -->"
+INDEX_ROW = (
+    f"| {SKILL_NAME} | `/{SKILL_NAME}` | `#midcost` | "
+    "Scaffold and manage multi-session project plans (living docs: "
+    "detail/status/archive/orientation/action-log/bugs); new / manage / close / status |"
+)
+
+
+# --------------------------------------------------------------------------- helpers
+def now_utc() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def die(msg: str) -> "None":
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def package_root() -> Path:
+    # this file is <pkg>/aios/install/horizon_project_planning_package.py
+    return Path(__file__).resolve().parents[2]
+
+
+def resolve_paths(horizon_root: "str | None") -> dict:
+    root = horizon_root or os.environ.get("HORIZON_ROOT")
+    if not root:
+        die("HORIZON_ROOT is not set and --horizon-root was not supplied.")
+    root_p = Path(root).expanduser().resolve()
+    if not root_p.is_dir():
+        die(f"HORIZON_ROOT does not exist: {root_p}")
+    system = Path(os.environ.get("HORIZON_SYSTEM") or root_p / "horizon_system").resolve()
+    etc = Path(os.environ.get("HORIZON_ETC") or system / "ai_os_etc").resolve()
+    skills_bin = Path(os.environ.get("HORIZON_SKILLS_BIN") or system / "skills_bin").resolve()
+    return {
+        "root": root_p,
+        "system": system,
+        "etc": etc,
+        "skills_bin": skills_bin,
+        "registry": etc / REGISTRY_NAME,
+        "skills_index": skills_bin / "index.md",
+        "agents_file": root_p / "projects" / "agents.md",
+        "skill_dest": skills_bin / SKILL_NAME,
+    }
+
+
+def rel_to_root(path: Path, root: Path) -> str:
+    try:
+        return path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
+
+
+def git_remotes(repo: Path) -> list:
+    """Return [{name,url}] for the package clone, or [] if not a git repo / git absent."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo), "remote", "-v"],
+            capture_output=True, text=True, check=False,
+        )
+    except (OSError, FileNotFoundError):
+        return []
+    seen, remotes = set(), []
+    for line in out.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] not in seen:
+            seen.add(parts[0])
+            remotes.append({"name": parts[0], "url": parts[1]})
+    return remotes
+
+
+def ensure_gitignored(path: Path) -> str:
+    """Make `path` git-ignored in its containing repo via .git/info/exclude (machine-local,
+    never synced, never touches the tracked .gitignore that the official lane overwrites).
+
+    Returns a short status string. No-op if git is absent, the path is outside a repo, or it is
+    already ignored by an existing rule.
+    """
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(path.parent), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=False,
+        )
+    except (OSError, FileNotFoundError):
+        return "no-git"
+    if top.returncode != 0 or not top.stdout.strip():
+        return "not-in-repo"
+    repo = Path(top.stdout.strip())
+    already = subprocess.run(
+        ["git", "-C", str(repo), "check-ignore", "-q", str(path)],
+        capture_output=True, text=True, check=False,
+    )
+    if already.returncode == 0:
+        return "already-ignored"
+    try:
+        rel = path.resolve().relative_to(repo.resolve()).as_posix()
+    except ValueError:
+        return "outside-repo"
+    exclude = repo / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    if rel in existing.splitlines():
+        return "already-excluded"
+    with exclude.open("a", encoding="utf-8", newline="\n") as fh:
+        if existing and not existing.endswith("\n"):
+            fh.write("\n")
+        fh.write(f"# horizon_agentic_project_planning (machine-local .local. override)\n{rel}\n")
+    return "excluded"
+
+
+def read_registry(registry: Path) -> dict:
+    if registry.exists():
+        try:
+            data = json.loads(registry.read_text(encoding="utf-8"))
+            data.setdefault("schema", REGISTRY_SCHEMA)
+            data.setdefault("packages", [])
+            return data
+        except (json.JSONDecodeError, OSError) as exc:
+            die(f"registry is present but unreadable ({exc}); fix or remove {registry}")
+    return {"schema": REGISTRY_SCHEMA, "packages": []}
+
+
+def write_registry(registry: Path, data: dict) -> None:
+    data["updated_utc"] = now_utc()
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    registry.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- install
+def cmd_install(args) -> None:
+    p = resolve_paths(args.horizon_root)
+    pkg = package_root()
+    if not p["skills_bin"].is_dir():
+        die(f"skills_bin not found: {p['skills_bin']}")
+
+    print(f"Installing '{PACKAGE_NAME}' -> {p['skills_bin']}")
+
+    # 1. skill payload (SKILL.md + kit/ = a copy of core/)
+    dest = p["skill_dest"]
+    if dest.exists() and not args.force:
+        die(f"already deployed at {dest}; re-run with --force, or run uninstall first.")
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    shutil.copy2(pkg / "aios" / "skill" / SKILL_NAME / "SKILL.md", dest / "SKILL.md")
+    shutil.copytree(pkg / "core", dest / "kit")
+    print("  - copied SKILL.md and kit/ (core templates + lifecycle specs)")
+
+    # 2. skills_bin index row (idempotent)
+    idx = p["skills_index"]
+    if idx.exists():
+        text = idx.read_text(encoding="utf-8")
+        if f"| {SKILL_NAME} |" not in text:
+            with idx.open("a", encoding="utf-8", newline="\n") as fh:
+                if not text.endswith("\n"):
+                    fh.write("\n")
+                fh.write(INDEX_ROW + "\n")
+            print("  - added row to skills_bin/index.md")
+        else:
+            print("  - index row already present (skipped)")
+    else:
+        print("  ! skills_bin/index.md not found; skipped index registration")
+
+    # 3. terse context pointer into projects/agents.md (idempotent, marker-delimited)
+    agents = p["agents_file"]
+    pointer = (pkg / "aios" / "install" / "context_pointer.md").read_text(encoding="utf-8")
+    if agents.exists():
+        text = agents.read_text(encoding="utf-8")
+        if BEGIN_MARKER not in text:
+            with agents.open("a", encoding="utf-8", newline="\n") as fh:
+                if not text.endswith("\n"):
+                    fh.write("\n")
+                fh.write("\n" + pointer.rstrip() + "\n")
+            print("  - injected context pointer into projects/agents.md")
+        else:
+            print("  - context pointer already present (skipped)")
+    else:
+        print("  ! projects/agents.md not found; skipped context pointer")
+
+    # 4. system-wide admin override guide (.local.) — materialized once, admin-editable.
+    #    Used as the default guide when scaffolding new plans on this machine. Never clobbered
+    #    by package updates or sync; delete it to fall back to the shipped default.
+    admin_guide = p["etc"] / ADMIN_GUIDE_NAME
+    canon_guide = pkg / "core" / "templates" / "PROJECT_PLAN_GUIDE.md"
+    if not admin_guide.exists():
+        banner = (
+            "<!-- ADMIN-EDITABLE — SYSTEM-WIDE PROJECT-PLAN GUIDE (.local. override).\n"
+            "     This machine-local copy is used as the default PROJECT_PLAN_GUIDE.md when\n"
+            "     scaffolding new project plans on this machine. Edit freely to change the\n"
+            "     system-wide project-plan rules; it is never overwritten by package updates\n"
+            "     or by the AIOS sync. Delete it to fall back to the package's shipped default.\n"
+            "     A single project/folder can override this further with its own\n"
+            "     PROJECT_PLAN_GUIDE.local.md referenced from that folder's agents.md. -->\n\n"
+        )
+        admin_guide.parent.mkdir(parents=True, exist_ok=True)
+        admin_guide.write_text(banner + canon_guide.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"  - materialized admin override guide: {admin_guide.name} (edit to customize system-wide)")
+    else:
+        print(f"  - admin override guide already present; left as-is ({admin_guide.name})")
+    # keep the machine-local .local. override out of git (via .git/info/exclude, not tracked .gitignore)
+    state = ensure_gitignored(admin_guide)
+    print(f"  - gitignore ({admin_guide.name}): {state}")
+    ensure_gitignored(p["registry"])  # registry too (already covered by *.local.json canon rule)
+
+    # 5. register in the machine-local deployed-packages registry
+    data = read_registry(p["registry"])
+    entry = {
+        "name": PACKAGE_NAME,
+        "version": (pkg / "VERSION").read_text(encoding="utf-8").strip()
+        if (pkg / "VERSION").exists() else "unknown",
+        "clone_path": rel_to_root(pkg, p["root"]),
+        "upstream": DEFAULT_UPSTREAM,
+        "remotes": git_remotes(pkg) or [{"name": "origin", "url": DEFAULT_UPSTREAM}],
+        "sync": True,
+        "installed_utc": now_utc(),
+        "updated_utc": now_utc(),
+        "payload": {
+            "skill_dir": rel_to_root(dest, p["root"]),
+            "skills_index_file": rel_to_root(idx, p["root"]),
+            "context_block_file": rel_to_root(agents, p["root"]),
+            "context_block_marker": CONTEXT_MARKER,
+            "admin_guide_file": rel_to_root(admin_guide, p["root"]),
+        },
+    }
+    others = [pk for pk in data["packages"] if pk.get("name") != PACKAGE_NAME]
+    prior = next((pk for pk in data["packages"] if pk.get("name") == PACKAGE_NAME), None)
+    if prior and prior.get("installed_utc"):
+        entry["installed_utc"] = prior["installed_utc"]
+    data["packages"] = others + [entry]
+    write_registry(p["registry"], data)
+    print(f"  - registered in {p['registry'].name}"
+          f" (clone_path={entry['clone_path']}, remotes={len(entry['remotes'])})")
+
+    print(f"Done. Restart Claude Code, then use /{SKILL_NAME} in any project.")
+    if rel_to_root(pkg, p["root"]) == pkg.resolve().as_posix():
+        print("  note: this package clone is OUTSIDE $HORIZON_ROOT; for sync coverage clone it to "
+              f"$HORIZON_SYSTEM/deployed_packages/{PACKAGE_NAME}/ and re-run install.")
+
+
+# --------------------------------------------------------------------------- uninstall
+def cmd_uninstall(args) -> None:
+    p = resolve_paths(args.horizon_root)
+    print(f"Uninstalling '{PACKAGE_NAME}' from {p['skills_bin']}")
+
+    if p["skill_dest"].exists():
+        shutil.rmtree(p["skill_dest"])
+        print(f"  - removed {p['skill_dest']}")
+    else:
+        print("  - skill payload not present (skipped)")
+
+    idx = p["skills_index"]
+    if idx.exists():
+        lines = idx.read_text(encoding="utf-8").splitlines()
+        kept = [ln for ln in lines if f"| {SKILL_NAME} |" not in ln]
+        if len(kept) != len(lines):
+            idx.write_text("\n".join(kept) + "\n", encoding="utf-8")
+            print("  - removed row from skills_bin/index.md")
+        else:
+            print("  - no index row found (skipped)")
+
+    agents = p["agents_file"]
+    if agents.exists():
+        text = agents.read_text(encoding="utf-8")
+        if BEGIN_MARKER in text:
+            out, skip = [], False
+            for ln in text.splitlines():
+                if BEGIN_MARKER in ln:
+                    skip = True
+                    continue
+                if skip:
+                    if END_MARKER in ln:
+                        skip = False
+                    continue
+                out.append(ln)
+            while out and out[-1].strip() == "":
+                out.pop()
+            agents.write_text("\n".join(out) + "\n", encoding="utf-8")
+            print("  - stripped context pointer from projects/agents.md")
+        else:
+            print("  - no context pointer block found (skipped)")
+
+    if p["registry"].exists():
+        data = read_registry(p["registry"])
+        before = len(data["packages"])
+        data["packages"] = [pk for pk in data["packages"] if pk.get("name") != PACKAGE_NAME]
+        if len(data["packages"]) != before:
+            write_registry(p["registry"], data)
+            print(f"  - deregistered from {p['registry'].name}")
+        else:
+            print("  - not in registry (skipped)")
+
+    admin_guide = p["etc"] / ADMIN_GUIDE_NAME
+    if admin_guide.exists():
+        print(f"  - kept admin override guide {admin_guide.name} (admin content; delete manually if unwanted)")
+    print("Done. The package clone and any scaffolded project plans are untouched (self-contained).")
+
+
+# --------------------------------------------------------------------------- status
+def cmd_status(args) -> None:
+    p = resolve_paths(args.horizon_root)
+    print(f"HORIZON_ROOT : {p['root']}")
+    print(f"registry     : {p['registry']}"
+          + ("" if p["registry"].exists() else "  (absent)"))
+    print(f"skill deploy : {p['skill_dest']}"
+          + ("  [present]" if p["skill_dest"].exists() else "  [absent]"))
+    admin_guide = p["etc"] / ADMIN_GUIDE_NAME
+    print(f"admin guide  : {admin_guide}"
+          + ("  [present]" if admin_guide.exists() else "  [absent]"))
+    if p["registry"].exists():
+        data = read_registry(p["registry"])
+        print(f"registry schema: {data.get('schema')}  updated: {data.get('updated_utc','?')}")
+        if not data["packages"]:
+            print("  (no packages registered)")
+        for pk in data["packages"]:
+            remotes = ", ".join(r.get("url", "?") for r in pk.get("remotes", [])) or "none"
+            print(f"  - {pk['name']} v{pk.get('version','?')}  sync={pk.get('sync')}")
+            print(f"      clone   : {pk.get('clone_path')}")
+            print(f"      upstream: {pk.get('upstream','(none)')}")
+            print(f"      remotes : {remotes}")
+
+
+# --------------------------------------------------------------------------- main
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Install/uninstall the Horizon Agentic Project Planning package.")
+    ap.add_argument("--horizon-root", help="AIOS root (default: $HORIZON_ROOT).")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name, fn, extra in (
+        ("install", cmd_install, True),
+        ("uninstall", cmd_uninstall, False),
+        ("status", cmd_status, False),
+    ):
+        sp = sub.add_parser(name)
+        sp.add_argument("--horizon-root", help="AIOS root (default: $HORIZON_ROOT).")
+        if extra:
+            sp.add_argument("--force", action="store_true",
+                            help="overwrite an existing deploy in place.")
+        sp.set_defaults(func=fn)
+    args = ap.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

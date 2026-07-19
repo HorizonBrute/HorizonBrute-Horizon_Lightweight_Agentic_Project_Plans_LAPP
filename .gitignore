@@ -1,0 +1,16 @@
+# Local agent/editor settings — machine-specific, not part of the package
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Machine/folder-local overrides (the .local. convention)
+*.local.json
+*.local.md

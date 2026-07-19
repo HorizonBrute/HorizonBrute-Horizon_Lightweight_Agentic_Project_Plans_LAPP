@@ -1,0 +1,93 @@
+# Installing the project-plan feature into Horizon AIOS
+
+This is the **optional** AIOS wrapper. The kit in `core/` already works standalone with no install —
+this layer deploys it as a discoverable `/project-plan` skill inside a Horizon AIOS instance, and
+registers the package so the AIOS sync keeps it protected and backed up.
+
+Installer: **`aios/install/horizon_project_planning_package.py`** — cross-platform, standard-library
+only (Python 3.8+). Subcommands: `install`, `uninstall`, `status`.
+
+## Deployment model
+
+A deployed package is a **git clone under `$HORIZON_SYSTEM/deployed_packages/<name>/`** (so it can pull
+its own updates) plus a machine-local registry entry that the AIOS sync reads.
+
+```
+$HORIZON_SYSTEM/
+  deployed_packages/
+    horizon_agentic_project_planning/   ← git clone (this package)
+  skills_bin/
+    project-plan/                        ← deployed by the installer
+      SKILL.md
+      kit/                               ← a copy of core/ (lifecycle specs + templates)
+    index.md                             ← +1 registration row
+  ai_os_etc/
+    horizon_deployed_packages.local.json ← the deployed-packages registry (machine-local)
+```
+
+## What `install` does (idempotent)
+
+1. **Copies the skill payload** to `$HORIZON_SKILLS_BIN/project-plan/`: `SKILL.md` + `kit/` (a full copy
+   of `core/`), so the skill is self-contained on the target machine.
+2. **Registers a row** in `$HORIZON_SKILLS_BIN/index.md` (skips if present).
+3. **Injects a terse context pointer** — a marker-delimited block from `install/context_pointer.md` —
+   at the end of `$HORIZON_ROOT/projects/agents.md`, so every project-scope agent discovers the
+   feature. Kept to ~3 lines to respect the AIOS terseness budget.
+4. **Registers the package** in `$HORIZON_ETC/horizon_deployed_packages.local.json`: name, version,
+   `clone_path` (relative to `$HORIZON_ROOT`), the git `remotes` (incl. forks), `sync: true`, and a
+   `payload` manifest (what it deployed) for exact uninstall.
+
+`uninstall` reverses steps 1–4. `status` prints the registry and what is deployed.
+
+## Registry ↔ sync integration
+
+The AIOS two-lane sync (`horizon_aios_sync.py`) reads this registry. Its **official lane** overwrites
+everything except `projects/usrbin/brains` from upstream — which would otherwise clobber a package
+that lives under the official-owned `horizon_system/`. The sync's `official_pathspec()` now **also
+excludes every registered clone with `sync != false`**, so a deployed package is protected from the
+overwrite lane. Each package clone is a nested git repo, so the nightly nested-repo sync backs it up
+to its own remote automatically. Verify protection with:
+
+```
+python horizon_system/sbin/horizon_aios_sync.py --status
+#   Deployed pkgs   : 1 protected from official overwrite (horizon_system/deployed_packages/...)
+```
+
+Set a package's `sync` to `false` in the registry to opt it out of protection.
+
+## Run it
+
+Clone the package to its deployed home, then run the installer from there:
+
+```bash
+git clone <package-remote> "$HORIZON_SYSTEM/deployed_packages/horizon_agentic_project_planning"
+python "$HORIZON_SYSTEM/deployed_packages/horizon_agentic_project_planning/aios/install/horizon_project_planning_package.py" install
+```
+
+Windows/PowerShell is identical — it's the same Python entry point:
+
+```powershell
+python "$env:HORIZON_SYSTEM\deployed_packages\horizon_agentic_project_planning\aios\install\horizon_project_planning_package.py" install
+```
+
+Options: `--horizon-root PATH` (default `$HORIZON_ROOT`), `--force` (overwrite an existing deploy).
+Then **restart Claude Code** (skills load at session start) and type `/project-plan` in any project.
+
+## Uninstall
+
+```
+python .../aios/install/horizon_project_planning_package.py uninstall
+```
+
+Removes the skill, the index row, the context block, and the registry entry. **The package clone and
+any project plans already scaffolded into target repos are left untouched** — each scaffolded folder
+carries its own `PROJECT_PLAN_GUIDE.md`, so removing the feature never orphans live plans.
+
+## Notes
+
+- The registry is `*.local.json` → machine-local: gitignored from OS canon (never rides the official
+  lane) yet carried by the hourly personal backup sync (its name matches the `*local*` re-include).
+- The installer writes only inside `$HORIZON_SKILLS_BIN`, `$HORIZON_ETC`, and a managed block in
+  `projects/agents.md`. It does not touch privileged system dirs.
+- `#midcost` is the skill's model-preference group. Adjust via `/model-prefs-assign` if your routing
+  differs.
