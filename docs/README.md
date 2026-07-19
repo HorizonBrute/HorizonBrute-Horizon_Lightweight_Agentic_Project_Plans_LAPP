@@ -5,6 +5,8 @@ worked example.
 
 ## Contents
 
+- **[`development.md`](development.md)** — the factory-canon → upstream → deployment release model: where
+  development happens, how it publishes, and how deployments track it as pull-only mirrors.
 - **[`design/architecture.md`](design/architecture.md)** — how the package is structured: the standalone
   core, the optional AIOS wrapper, the installer, the deployed-packages registry, the sync gate, and the
   override layers.

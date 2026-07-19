@@ -11,8 +11,13 @@ uses the package-scoped horizon_project_planning_* name (it is not part of the O
 
 Subcommands:
   install     Deploy the skill + kit, inject the context pointer, and register the package.
+  update      git-pull the deployment clone from its upstream, then re-deploy (install --force).
   uninstall   Reverse a deploy. Leaves the package clone and any scaffolded project plans in place.
   status      Print the registry and what is currently deployed.
+
+Source model: the FACTORY CANON is the development checkout (the `projects/` repo), which publishes to
+the upstream. A DEPLOYMENT is a clone of that upstream under $HORIZON_SYSTEM/deployed_packages/ that
+tracks it. `update` is the deployment side of the loop: canon -> upstream (push) -> deployment (pull).
 
 Locations (resolved from env, overridable with --horizon-root):
   HORIZON_ROOT         AIOS root
@@ -149,6 +154,33 @@ def ensure_gitignored(path: Path) -> str:
     return "excluded"
 
 
+def is_deployment_clone(pkg: Path, system: Path) -> bool:
+    """True if this clone lives under $HORIZON_SYSTEM/deployed_packages/ (a DEPLOYMENT), as opposed
+    to the development checkout (the FACTORY CANON, e.g. the projects/ repo)."""
+    dp = (system / "deployed_packages").resolve()
+    try:
+        pkg.resolve().relative_to(dp)
+        return True
+    except ValueError:
+        return False
+
+
+def configure_pull_only(pkg: Path) -> str:
+    """Make a deployment clone PULL-ONLY: it may fetch/pull from upstream but must never push.
+    The developer publishes from the canon; a deployment is a read-only mirror. Implemented by
+    pointing the push URL at a sentinel that fails fast with a clear message."""
+    sentinel = "DISABLED-pull-only-deployment"
+    remotes = git_remotes(pkg)
+    if not remotes:
+        return "no-remote"
+    name = remotes[0]["name"]
+    res = subprocess.run(
+        ["git", "-C", str(pkg), "remote", "set-url", "--push", name, sentinel],
+        capture_output=True, text=True, check=False,
+    )
+    return "pull-only" if res.returncode == 0 else f"failed:{res.stderr.strip()}"
+
+
 def read_registry(registry: Path) -> dict:
     if registry.exists():
         try:
@@ -243,6 +275,17 @@ def cmd_install(args) -> None:
     print(f"  - gitignore ({admin_guide.name}): {state}")
     ensure_gitignored(p["registry"])  # registry too (already covered by *.local.json canon rule)
 
+    # 4b. a DEPLOYMENT clone is a pull-only mirror of canon — allow fetch/pull, forbid push.
+    #     The development checkout (factory canon) is left push-enabled.
+    deployment = is_deployment_clone(pkg, p["system"])
+    pull_only = False
+    if deployment:
+        st = configure_pull_only(pkg)
+        pull_only = st == "pull-only"
+        print(f"  - deployment clone: push {'DISABLED (pull-only)' if pull_only else st}")
+    else:
+        print("  - development checkout (factory canon): push left enabled")
+
     # 5. register in the machine-local deployed-packages registry
     data = read_registry(p["registry"])
     entry = {
@@ -252,6 +295,8 @@ def cmd_install(args) -> None:
         "clone_path": rel_to_root(pkg, p["root"]),
         "upstream": DEFAULT_UPSTREAM,
         "remotes": git_remotes(pkg) or [{"name": "origin", "url": DEFAULT_UPSTREAM}],
+        "role": "deployment" if deployment else "development-canon",
+        "pull_only": pull_only,
         "sync": True,
         "installed_utc": now_utc(),
         "updated_utc": now_utc(),
@@ -336,6 +381,37 @@ def cmd_uninstall(args) -> None:
     print("Done. The package clone and any scaffolded project plans are untouched (self-contained).")
 
 
+# --------------------------------------------------------------------------- update
+def cmd_update(args) -> None:
+    """Pull the deployment clone from its upstream, then re-deploy. The deployment side of the
+    canon -> upstream -> deployment loop. Run this from a deployed clone (has a git remote)."""
+    pkg = package_root()
+    remotes = git_remotes(pkg)
+    if not remotes:
+        die(f"{pkg} has no git remote to pull from. This command runs on a DEPLOYMENT clone "
+            f"(cloned from the upstream), not a detached copy.")
+    print(f"Updating deployment at {pkg} (upstream authoritative — local changes overwritten)")
+    up = subprocess.run(
+        ["git", "-C", str(pkg), "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        capture_output=True, text=True, check=False,
+    )
+    upstream_ref = up.stdout.strip() if up.returncode == 0 else f"{remotes[0]['name']}/HEAD"
+    fetch = subprocess.run(["git", "-C", str(pkg), "fetch", "--prune"],
+                           capture_output=True, text=True, check=False)
+    if fetch.returncode != 0:
+        die(f"git fetch failed: {fetch.stderr.strip()}")
+    reset = subprocess.run(["git", "-C", str(pkg), "reset", "--hard", upstream_ref],
+                           capture_output=True, text=True, check=False)
+    out = (reset.stdout + reset.stderr).strip()
+    if out:
+        print("  " + out.replace("\n", "\n  "))
+    if reset.returncode != 0:
+        die(f"git reset to {upstream_ref} failed: {reset.stderr.strip()}")
+    print("  - overwritten from upstream; re-deploying …")
+    args.force = True
+    cmd_install(args)
+
+
 # --------------------------------------------------------------------------- status
 def cmd_status(args) -> None:
     p = resolve_paths(args.horizon_root)
@@ -354,7 +430,8 @@ def cmd_status(args) -> None:
             print("  (no packages registered)")
         for pk in data["packages"]:
             remotes = ", ".join(r.get("url", "?") for r in pk.get("remotes", [])) or "none"
-            print(f"  - {pk['name']} v{pk.get('version','?')}  sync={pk.get('sync')}")
+            print(f"  - {pk['name']} v{pk.get('version','?')}  sync={pk.get('sync')}  "
+                  f"role={pk.get('role','?')}  pull_only={pk.get('pull_only', '?')}")
             print(f"      clone   : {pk.get('clone_path')}")
             print(f"      upstream: {pk.get('upstream','(none)')}")
             print(f"      remotes : {remotes}")
@@ -367,6 +444,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, fn, extra in (
         ("install", cmd_install, True),
+        ("update", cmd_update, False),
         ("uninstall", cmd_uninstall, False),
         ("status", cmd_status, False),
     ):
