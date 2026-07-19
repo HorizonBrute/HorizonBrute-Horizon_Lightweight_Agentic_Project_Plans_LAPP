@@ -298,6 +298,9 @@ def cmd_install(args) -> None:
         "role": "deployment" if deployment else "development-canon",
         "pull_only": pull_only,
         "sync": True,
+        # Entrypoint the AIOS sync invokes to update this package: `python <clone>/<entrypoint> update`.
+        # This is how registering a package ADDS it to the AIOS sync's options-package update pass.
+        "install_entrypoint": Path(__file__).resolve().relative_to(pkg).as_posix(),
         "installed_utc": now_utc(),
         "updated_utc": now_utc(),
         "payload": {
