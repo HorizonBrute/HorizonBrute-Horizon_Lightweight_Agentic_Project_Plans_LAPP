@@ -111,5 +111,3 @@ this repo."*
 **Horizon AIOS:** clone this package to `$HORIZON_SYSTEM/deployed_packages/`, run
 `python aios/install/horizon_project_planning_package.py install`, restart Claude Code, then
 `/project-plan new <slug>` in any project.
-
-Origin & conventions distilled from the SorceryPunk project-plan system.
