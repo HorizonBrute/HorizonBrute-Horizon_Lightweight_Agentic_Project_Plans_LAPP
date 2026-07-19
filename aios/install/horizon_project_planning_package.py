@@ -390,7 +390,7 @@ def cmd_update(args) -> None:
     if not remotes:
         die(f"{pkg} has no git remote to pull from. This command runs on a DEPLOYMENT clone "
             f"(cloned from the upstream), not a detached copy.")
-    print(f"Updating deployment at {pkg} (upstream authoritative — local changes overwritten)")
+    print(f"Updating deployment at {pkg} (upstream authoritative - local changes overwritten)")
     up = subprocess.run(
         ["git", "-C", str(pkg), "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
         capture_output=True, text=True, check=False,
@@ -407,7 +407,7 @@ def cmd_update(args) -> None:
         print("  " + out.replace("\n", "\n  "))
     if reset.returncode != 0:
         die(f"git reset to {upstream_ref} failed: {reset.stderr.strip()}")
-    print("  - overwritten from upstream; re-deploying …")
+    print("  - overwritten from upstream; re-deploying ...")
     args.force = True
     cmd_install(args)
 
