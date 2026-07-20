@@ -1,15 +1,15 @@
 ---
 type: decision
-title: "ADR-0005 — Gate the AIOS official sync lane on the deployed-packages registry"
+title: "ADR-0005 — Gate the Horizon.AIOS official sync lane on the deployed-packages registry"
 status: Accepted
 timestamp: 2026-07-19
 tags: [adr, sync, aios, canon]
 ---
 
-# ADR-0005 — Gate the AIOS official sync lane on the deployed-packages registry
+# ADR-0005 — Gate the Horizon.AIOS official sync lane on the deployed-packages registry
 
 ## Status
-Accepted (2026-07-19). Modifies AIOS canon (`horizon_system/sbin/horizon_aios_sync.py`).
+Accepted (2026-07-19). Modifies Horizon.AIOS canon (`horizon_system/sbin/horizon_aios_sync.py`).
 
 ## Context
 A deployed package clone lives under `horizon_system/deployed_packages/<name>/` (ADR-0004), inside the

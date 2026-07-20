@@ -13,9 +13,9 @@ Accepted (2026-07-19).
 
 ## Context
 For a deployed package to receive updates it must be a git clone the admin can pull; for it to survive
-and be backed up it must be tracked by the AIOS sync. The AIOS had **no** package/feature registry —
+and be backed up it must be tracked by the Horizon.AIOS sync. The Horizon.AIOS had **no** package/feature registry —
 this was greenfield. Two things had to be decided: where a package clone lives, and how the system
-records that it is installed. Constraints from the AIOS: the sync is lane-partitioned and file locality
+records that it is installed. Constraints from the Horizon.AIOS: the sync is lane-partitioned and file locality
 (the `*.local.*` naming) decides which lane carries a file; the official lane overwrites canon from
 upstream, so a canon-named state file would be discarded on sync.
 

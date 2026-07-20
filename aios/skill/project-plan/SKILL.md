@@ -31,7 +31,7 @@ The lifecycle specs and blank templates ship alongside this skill at `<skill-dir
 ### `new [slug]` — scaffold a new project plan
 1. Read `kit/lifecycle/01_setting_up_a_project.md` in full and follow it.
 2. Locate the project-plans folder: default `docs/project_plans/` in the **current project** (the
-   user's cwd, NOT the AIOS root). Create it if absent.
+   user's cwd, NOT the Horizon.AIOS root). Create it if absent.
 3. Pick the next serial `NNN` from that folder's `index.md` (or `001` if new).
 4. Resolve the slug (from the arg, or ask for a short topic slug).
 5. Copy every `kit/templates/NNN_*-SLUG.md` into the folder, substituting the real `NNN`/`SLUG` in
@@ -69,7 +69,7 @@ List the projects in the current project-plans folder (from `index.md`) and ask 
 to do. If there's no folder yet, offer to `new`.
 
 ## Notes for the executing agent
-- Project plans live in the **target project's** repo (the user's cwd), never in the AIOS system dirs.
+- Project plans live in the **target project's** repo (the user's cwd), never in the Horizon.AIOS system dirs.
   This skill only *reads* its kit from the skills path.
 - Never invent a brief. The detail doc's `## My Initial Brief` is the user's words, verbatim.
 - Keep `DONE` (landed) vs `VERIFIED` (confirmed in the running system) honest.

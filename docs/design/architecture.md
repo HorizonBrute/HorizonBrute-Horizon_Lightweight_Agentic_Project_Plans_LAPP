@@ -1,7 +1,7 @@
 ---
 type: Explanation
 title: "Horizon Agentic Project Planning — Architecture"
-description: How the package is structured — the standalone core, the optional AIOS wrapper, the installer, the deployed-packages registry, the sync gate, and the override layers.
+description: How the package is structured — the standalone core, the optional Horizon.AIOS wrapper, the installer, the deployed-packages registry, the sync gate, and the override layers.
 tags: [architecture, package, project-planning, aios]
 timestamp: 2026-07-19
 status: draft
@@ -10,7 +10,7 @@ status: draft
 # Architecture
 
 The package has two layers with a hard boundary between them, plus an installer that bridges them into
-a Horizon AIOS instance. The governing decisions are recorded as ADRs in `../decisions/`.
+a Horizon.AIOS instance. The governing decisions are recorded as ADRs in `../decisions/`.
 
 ## Layers
 
@@ -26,10 +26,10 @@ horizon_agentic_project_planning/
 └── docs/                      ← this documentation + a worked example
 ```
 
-**The boundary (ADR-0001):** everything the system *does* lives in `core/` and works with no AIOS. The
-`aios/` layer only makes it discoverable and one-command installable inside a Horizon AIOS. Nothing in
+**The boundary (ADR-0001):** everything the system *does* lives in `core/` and works with no Horizon.AIOS. The
+`aios/` layer only makes it discoverable and one-command installable inside a Horizon.AIOS. Nothing in
 `core/` imports or assumes `aios/`. This is what lets the package "stand alone completely away from
-Horizon AIOS" and *also* be an optional AIOS feature.
+Horizon.AIOS" and *also* be an optional Horizon AIOS Options Package.
 
 ## The document set (ADR-0002)
 
@@ -57,7 +57,7 @@ stdlib-only) is run from a clone placed at `$HORIZON_SYSTEM/deployed_packages/<n
 ## Sync integration (ADR-0005)
 
 The registry is machine-local (`*.local.json` → gitignored from OS canon, carried by the personal
-backup sync). The AIOS official sync lane (`horizon_aios_sync.py`) overwrites everything except
+backup sync). The Horizon.AIOS official sync lane (`horizon_aios_sync.py`) overwrites everything except
 `projects/usrbin/brains` from upstream — which would clobber a package living under the official-owned
 `horizon_system/`. The sync's `official_pathspec()` was changed to also exclude every registered clone
 with `sync != false`, so a deployed package is protected. Each clone is a nested git repo, so the

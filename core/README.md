@@ -2,7 +2,7 @@
 
 You are an agent. This folder is a self-contained kit for scaffolding and running a **project plan**:
 a set of living documents that track a multi-session body of work from kickoff to a clean close. It
-has **no dependencies** — you do not need Horizon AIOS or any other system to use it.
+has **no dependencies** — you do not need Horizon.AIOS or any other system to use it.
 
 ## How to use this kit
 
@@ -40,8 +40,8 @@ override it for itself without editing the base: create a `PROJECT_PLAN_GUIDE.lo
 folder holding just the changed/added rules, and reference it from that folder's `agents.md` (e.g.
 `@docs/project_plans/PROJECT_PLAN_GUIDE.local.md`) so agents working there load the folder-specific
 rules on top of the base. `.local.` files are folder-specific and should be git-ignored by the host
-repo. (Inside a Horizon AIOS install there is also a machine-wide admin override —
-`$HORIZON_ETC/horizon_project_planning_guide.local.md` — but the folder-level override needs no AIOS.)
+repo. (Inside a Horizon.AIOS install there is also a machine-wide admin override —
+`$HORIZON_ETC/horizon_project_planning_guide.local.md` — but the folder-level override needs no Horizon.AIOS.)
 
 ## Design principles (why the system is shaped this way)
 

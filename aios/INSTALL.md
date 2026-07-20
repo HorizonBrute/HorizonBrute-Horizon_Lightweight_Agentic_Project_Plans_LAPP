@@ -1,8 +1,8 @@
-# Installing the project-plan feature into Horizon AIOS
+# Installing the project-plan feature into Horizon.AIOS
 
-This is the **optional** AIOS wrapper. The kit in `core/` already works standalone with no install —
-this layer deploys it as a discoverable `/project-plan` skill inside a Horizon AIOS instance, and
-registers the package so the AIOS sync keeps it protected and backed up.
+This is the **optional** Horizon.AIOS wrapper. The kit in `core/` already works standalone with no install —
+this layer deploys it as a discoverable `/project-plan` skill inside a Horizon.AIOS instance, and
+registers the package so the Horizon.AIOS sync keeps it protected and backed up.
 
 Installer: **`aios/install/horizon_project_planning_package.py`** — cross-platform, standard-library
 only (Python 3.8+). Subcommands: `install`, `uninstall`, `status`.
@@ -10,7 +10,7 @@ only (Python 3.8+). Subcommands: `install`, `uninstall`, `status`.
 ## Deployment model
 
 A deployed package is a **git clone under `$HORIZON_SYSTEM/deployed_packages/<name>/`** (so it can pull
-its own updates) plus a machine-local registry entry that the AIOS sync reads.
+its own updates) plus a machine-local registry entry that the Horizon.AIOS sync reads.
 
 ```
 $HORIZON_SYSTEM/
@@ -32,7 +32,7 @@ $HORIZON_SYSTEM/
 2. **Registers a row** in `$HORIZON_SKILLS_BIN/index.md` (skips if present).
 3. **Injects a terse context pointer** — a marker-delimited block from `install/context_pointer.md` —
    at the end of `$HORIZON_ROOT/projects/agents.md`, so every project-scope agent discovers the
-   feature. Kept to ~3 lines to respect the AIOS terseness budget.
+   feature. Kept to ~3 lines to respect the Horizon.AIOS terseness budget.
 4. **Registers the package** in `$HORIZON_ETC/horizon_deployed_packages.local.json`: name, version,
    `clone_path` (relative to `$HORIZON_ROOT`), the git `remotes` (incl. forks), `sync: true`, and a
    `payload` manifest (what it deployed) for exact uninstall.
@@ -41,7 +41,7 @@ $HORIZON_SYSTEM/
 
 ## Registry ↔ sync integration
 
-The AIOS two-lane sync (`horizon_aios_sync.py`) reads this registry. Its **official lane** overwrites
+The Horizon.AIOS two-lane sync (`horizon_aios_sync.py`) reads this registry. Its **official lane** overwrites
 everything except `projects/usrbin/brains` from upstream — which would otherwise clobber a package
 that lives under the official-owned `horizon_system/`. The sync's `official_pathspec()` now **also
 excludes every registered clone with `sync != false`**, so a deployed package is protected from the
