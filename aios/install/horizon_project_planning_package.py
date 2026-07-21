@@ -85,6 +85,7 @@ def resolve_paths(horizon_root: "str | None") -> dict:
         "skills_bin": skills_bin,
         "registry": etc / REGISTRY_NAME,
         "skills_index": skills_bin / "index.md",
+        "skills_index_local": skills_bin / "index.local.md",
         "agents_file": root_p / "projects" / "agents.md",
         "skill_dest": skills_bin / SKILL_NAME,
     }
@@ -200,6 +201,18 @@ def write_registry(registry: Path, data: dict) -> None:
 
 
 # --------------------------------------------------------------------------- install
+def _source_index_header(index_md: Path):
+    """Return [header_row, separator_row] from the tracked skills index so the machine-local
+    index.local.md mirrors its columns EXACTLY. None if the index/header is unavailable."""
+    if not index_md.exists():
+        return None
+    lines = index_md.read_text(encoding="utf-8").splitlines()
+    for i, ln in enumerate(lines[:-1]):
+        if ln.lstrip().startswith("|") and lines[i + 1].lstrip().startswith("|---"):
+            return [ln, lines[i + 1]]
+    return None
+
+
 def cmd_install(args) -> None:
     p = resolve_paths(args.horizon_root)
     pkg = package_root()
@@ -219,20 +232,38 @@ def cmd_install(args) -> None:
     shutil.copytree(pkg / "core", dest / "kit")
     print("  - copied SKILL.md and kit/ (core templates + lifecycle specs)")
 
-    # 2. skills_bin index row (idempotent)
+    # 2. skills_bin catalog row -> machine-local index.local.md (untracked; the official
+    #    (overwrite) lane never reverts it, so the registration survives OS updates). Its
+    #    columns mirror the tracked skills_bin/index.md EXACTLY (header sourced from it).
     idx = p["skills_index"]
-    if idx.exists():
-        text = idx.read_text(encoding="utf-8")
+    local_idx = p["skills_index_local"]
+    if not local_idx.exists():
+        header = _source_index_header(idx)
+        if header is None:
+            print("  ! skills_bin/index.md header unavailable; skipped catalog registration")
+        else:
+            comment = (
+                "<!-- MACHINE-LOCAL options-package skills catalog — admin-editable; "
+                "not overwritten by AIOS sync (official lane). Columns mirror skills_bin/index.md. -->"
+            )
+            with local_idx.open("w", encoding="utf-8", newline="\n") as fh:
+                fh.write(comment + "\n")
+                fh.write(header[0] + "\n")
+                fh.write(header[1] + "\n")
+                fh.write(INDEX_ROW + "\n")
+            print("  - created index.local.md and added catalog row")
+    else:
+        text = local_idx.read_text(encoding="utf-8")
         if f"| {SKILL_NAME} |" not in text:
-            with idx.open("a", encoding="utf-8", newline="\n") as fh:
+            with local_idx.open("a", encoding="utf-8", newline="\n") as fh:
                 if not text.endswith("\n"):
                     fh.write("\n")
                 fh.write(INDEX_ROW + "\n")
-            print("  - added row to skills_bin/index.md")
+            print("  - added row to index.local.md")
         else:
-            print("  - index row already present (skipped)")
-    else:
-        print("  ! skills_bin/index.md not found; skipped index registration")
+            print("  - index.local.md row already present (skipped)")
+    if local_idx.exists():
+        ensure_gitignored(local_idx)
 
     # 3. terse context pointer into projects/agents.md (idempotent, marker-delimited)
     agents = p["agents_file"]
@@ -305,7 +336,7 @@ def cmd_install(args) -> None:
         "updated_utc": now_utc(),
         "payload": {
             "skill_dir": rel_to_root(dest, p["root"]),
-            "skills_index_file": rel_to_root(idx, p["root"]),
+            "skills_index_file": rel_to_root(local_idx, p["root"]),
             "context_block_file": rel_to_root(agents, p["root"]),
             "context_block_marker": CONTEXT_MARKER,
             "admin_guide_file": rel_to_root(admin_guide, p["root"]),
@@ -337,15 +368,15 @@ def cmd_uninstall(args) -> None:
     else:
         print("  - skill payload not present (skipped)")
 
-    idx = p["skills_index"]
+    idx = p["skills_index_local"]
     if idx.exists():
         lines = idx.read_text(encoding="utf-8").splitlines()
         kept = [ln for ln in lines if f"| {SKILL_NAME} |" not in ln]
         if len(kept) != len(lines):
             idx.write_text("\n".join(kept) + "\n", encoding="utf-8")
-            print("  - removed row from skills_bin/index.md")
+            print("  - removed row from index.local.md")
         else:
-            print("  - no index row found (skipped)")
+            print("  - no index.local.md row found (skipped)")
 
     agents = p["agents_file"]
     if agents.exists():

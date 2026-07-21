@@ -20,7 +20,7 @@ $HORIZON_SYSTEM/
     project-plan/                        ← deployed by the installer
       SKILL.md
       kit/                               ← a copy of core/ (lifecycle specs + templates)
-    index.md                             ← +1 registration row
+    index.local.md                       ← +1 catalog row (machine-local, untracked)
   ai_os_etc/
     horizon_deployed_packages.local.json ← the deployed-packages registry (machine-local)
 ```
@@ -29,7 +29,7 @@ $HORIZON_SYSTEM/
 
 1. **Copies the skill payload** to `$HORIZON_SKILLS_BIN/project-plan/`: `SKILL.md` + `kit/` (a full copy
    of `core/`), so the skill is self-contained on the target machine.
-2. **Registers a row** in `$HORIZON_SKILLS_BIN/index.md` (skips if present).
+2. **Registers a catalog row** in the machine-local `$HORIZON_SKILLS_BIN/index.local.md` (created from the tracked `index.md` header if absent, so columns match exactly; skips if present). Being untracked, this row is never reverted by the OS official (overwrite) lane, so the registration survives AIOS updates — the tracked `index.md` carries core skills only.
 3. **Injects a terse context pointer** — a marker-delimited block from `install/context_pointer.md` —
    at the end of `$HORIZON_ROOT/projects/agents.md`, so every project-scope agent discovers the
    feature. Kept to ~3 lines to respect the Horizon.AIOS terseness budget.
