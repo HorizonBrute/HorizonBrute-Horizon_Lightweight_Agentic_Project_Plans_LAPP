@@ -17,3 +17,4 @@ records, cross-referenced from its plans and notes.
 | [0006](ADR-0006-local-override-layers.md) | Three-tier `.local.` guide override | Accepted |
 | [0007](ADR-0007-self-contained-projects.md) | Scaffolded projects are self-managing | Accepted |
 | [0008](ADR-0008-pull-only-deployments.md) | Deployments are pull-only mirrors of the factory canon | Accepted |
+| [0009](ADR-0009-root-scope-context-injection.md) | Retarget context injection to a root-scope, machine-local file | Accepted |

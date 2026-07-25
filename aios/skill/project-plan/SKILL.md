@@ -16,7 +16,7 @@ over a bundled, self-contained kit; all real behavior is defined there.
 
 The lifecycle specs and blank templates ship alongside this skill at `<skill-dir>/kit/`, where
 `<skill-dir>` is the directory containing this `SKILL.md` (typically
-`$HORIZON_SKILLS_BIN/project-plan/` or `~/.claude/skills/project-plan/`). Read from there:
+`$HORIZON_SYSTEM/skills_bin/project-plan/` or `~/.claude/skills/project-plan/`). Read from there:
 
 - `kit/README.md` — the kit overview and design principles.
 - `kit/lifecycle/01_setting_up_a_project.md` — scaffolding a new plan.

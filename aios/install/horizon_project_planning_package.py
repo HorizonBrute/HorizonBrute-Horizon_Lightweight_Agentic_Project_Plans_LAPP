@@ -22,8 +22,13 @@ tracks it. `update` is the deployment side of the loop: canon -> upstream (push)
 Locations (resolved from env, overridable with --horizon-root):
   HORIZON_ROOT         AIOS root
   HORIZON_SYSTEM       <root>/horizon_system         (expected clone home: <system>/deployed_packages/)
-  HORIZON_ETC          <system>/ai_os_etc            (registry lives here)
+  HORIZON_ETC          <system>/ai_os_etc            (registry + packages context file live here)
   HORIZON_SKILLS_BIN   <system>/skills_bin           (skill deploy target)
+
+Context injection target: `$HORIZON_ETC/horizon_aios_options_packages.local.md` — a root-scope,
+machine-local file imported by the OS root `agents.md`, so every agent (not just project-scope ones)
+sees this package is installed. On `install`/`update` the installer also migrates away a stale block
+left by older versions at `$HORIZON_ROOT/projects/agents.md` (the previous injection target).
 """
 from __future__ import annotations
 
@@ -43,6 +48,13 @@ DEFAULT_UPSTREAM = "https://github.com/HorizonBrute/HorizonBrute-Horizon_Lightwe
 REGISTRY_NAME = "horizon_deployed_packages.local.json"
 REGISTRY_SCHEMA = "horizon_deployed_packages/v1"
 ADMIN_GUIDE_NAME = "horizon_project_planning_guide.local.md"
+PACKAGES_CONTEXT_NAME = "horizon_aios_options_packages.local.md"
+PACKAGES_CONTEXT_HEADER = (
+    "<!-- MACHINE-LOCAL — per-package context pointers, concatenated here by each installed\n"
+    "     options package's installer. Managed by package installers; do not hand-edit. Imported\n"
+    "     by the OS root agents.md so every agent, in every scope, sees what optional capability\n"
+    "     this machine has installed. -->\n\n"
+)
 CONTEXT_MARKER = "horizon-agentic-project-planning"
 BEGIN_MARKER = f"<!-- BEGIN {CONTEXT_MARKER}"
 END_MARKER = f"<!-- END {CONTEXT_MARKER} -->"
@@ -86,7 +98,8 @@ def resolve_paths(horizon_root: "str | None") -> dict:
         "registry": etc / REGISTRY_NAME,
         "skills_index": skills_bin / "index.md",
         "skills_index_local": skills_bin / "index.local.md",
-        "agents_file": root_p / "projects" / "agents.md",
+        "packages_context_file": etc / PACKAGES_CONTEXT_NAME,
+        "legacy_agents_file": root_p / "projects" / "agents.md",
         "skill_dest": skills_bin / SKILL_NAME,
     }
 
@@ -153,6 +166,30 @@ def ensure_gitignored(path: Path) -> str:
             fh.write("\n")
         fh.write(f"# horizon_agentic_project_planning (machine-local .local. override)\n{rel}\n")
     return "excluded"
+
+
+def strip_marker_block(path: Path) -> bool:
+    """Remove this package's BEGIN/END marker block from `path` if present. Returns True if a block
+    was stripped, False if `path` is absent or carries no block (safe no-op either way)."""
+    if not path.exists():
+        return False
+    text = path.read_text(encoding="utf-8")
+    if BEGIN_MARKER not in text:
+        return False
+    out, skip = [], False
+    for ln in text.splitlines():
+        if BEGIN_MARKER in ln:
+            skip = True
+            continue
+        if skip:
+            if END_MARKER in ln:
+                skip = False
+            continue
+        out.append(ln)
+    while out and out[-1].strip() == "":
+        out.pop()
+    path.write_text("\n".join(out) + "\n" if out else "", encoding="utf-8")
+    return True
 
 
 def is_deployment_clone(pkg: Path, system: Path) -> bool:
@@ -265,21 +302,33 @@ def cmd_install(args) -> None:
     if local_idx.exists():
         ensure_gitignored(local_idx)
 
-    # 3. terse context pointer into projects/agents.md (idempotent, marker-delimited)
-    agents = p["agents_file"]
+    # 3. terse context pointer -> the machine-local, root-scope packages context file (idempotent,
+    #    marker-delimited). This file is imported by the OS root agents.md, so every agent — not
+    #    just project-scope ones — discovers the package.
+    ctx_file = p["packages_context_file"]
     pointer = (pkg / "aios" / "install" / "context_pointer.md").read_text(encoding="utf-8")
-    if agents.exists():
-        text = agents.read_text(encoding="utf-8")
-        if BEGIN_MARKER not in text:
-            with agents.open("a", encoding="utf-8", newline="\n") as fh:
-                if not text.endswith("\n"):
-                    fh.write("\n")
-                fh.write("\n" + pointer.rstrip() + "\n")
-            print("  - injected context pointer into projects/agents.md")
-        else:
-            print("  - context pointer already present (skipped)")
+
+    # 3a. migration: strip a stale same-marker block left by older versions at the OLD injection
+    #     target (projects/agents.md) so an upgraded machine never carries the block twice. Runs on
+    #     both install and update (cmd_update re-invokes cmd_install). Safe no-op if absent.
+    if strip_marker_block(p["legacy_agents_file"]):
+        print(f"  - migrated: stripped legacy context pointer from {p['legacy_agents_file']}")
+
+    if not ctx_file.exists():
+        ctx_file.parent.mkdir(parents=True, exist_ok=True)
+        ctx_file.write_text(PACKAGES_CONTEXT_HEADER, encoding="utf-8")
+        print(f"  - created {ctx_file.name}")
+
+    text = ctx_file.read_text(encoding="utf-8")
+    if BEGIN_MARKER not in text:
+        with ctx_file.open("a", encoding="utf-8", newline="\n") as fh:
+            if not text.endswith("\n"):
+                fh.write("\n")
+            fh.write("\n" + pointer.rstrip() + "\n")
+        print(f"  - injected context pointer into {ctx_file.name}")
     else:
-        print("  ! projects/agents.md not found; skipped context pointer")
+        print("  - context pointer already present (skipped)")
+    ensure_gitignored(ctx_file)
 
     # 4. system-wide admin override guide (.local.) — materialized once, admin-editable.
     #    Used as the default guide when scaffolding new plans on this machine. Never clobbered
@@ -337,7 +386,7 @@ def cmd_install(args) -> None:
         "payload": {
             "skill_dir": rel_to_root(dest, p["root"]),
             "skills_index_file": rel_to_root(local_idx, p["root"]),
-            "context_block_file": rel_to_root(agents, p["root"]),
+            "context_block_file": rel_to_root(ctx_file, p["root"]),
             "context_block_marker": CONTEXT_MARKER,
             "admin_guide_file": rel_to_root(admin_guide, p["root"]),
         },
@@ -378,26 +427,15 @@ def cmd_uninstall(args) -> None:
         else:
             print("  - no index.local.md row found (skipped)")
 
-    agents = p["agents_file"]
-    if agents.exists():
-        text = agents.read_text(encoding="utf-8")
-        if BEGIN_MARKER in text:
-            out, skip = [], False
-            for ln in text.splitlines():
-                if BEGIN_MARKER in ln:
-                    skip = True
-                    continue
-                if skip:
-                    if END_MARKER in ln:
-                        skip = False
-                    continue
-                out.append(ln)
-            while out and out[-1].strip() == "":
-                out.pop()
-            agents.write_text("\n".join(out) + "\n", encoding="utf-8")
-            print("  - stripped context pointer from projects/agents.md")
-        else:
-            print("  - no context pointer block found (skipped)")
+    ctx_file = p["packages_context_file"]
+    if strip_marker_block(ctx_file):
+        print(f"  - stripped context pointer from {ctx_file.name}")
+    else:
+        print("  - no context pointer block found (skipped)")
+    # also clean up any stale block left at the pre-migration location, in case install/update was
+    # never re-run on this machine after the retarget.
+    if strip_marker_block(p["legacy_agents_file"]):
+        print(f"  - stripped legacy context pointer from {p['legacy_agents_file']}")
 
     if p["registry"].exists():
         data = read_registry(p["registry"])
@@ -457,6 +495,17 @@ def cmd_status(args) -> None:
     admin_guide = p["etc"] / ADMIN_GUIDE_NAME
     print(f"admin guide  : {admin_guide}"
           + ("  [present]" if admin_guide.exists() else "  [absent]"))
+    ctx_file = p["packages_context_file"]
+    if not ctx_file.exists():
+        ctx_state = "[absent]"
+    elif BEGIN_MARKER in ctx_file.read_text(encoding="utf-8"):
+        ctx_state = "[block present]"
+    else:
+        ctx_state = "[file present, no block]"
+    print(f"context file : {ctx_file}  {ctx_state}")
+    legacy = p["legacy_agents_file"]
+    if legacy.exists() and BEGIN_MARKER in legacy.read_text(encoding="utf-8"):
+        print(f"  ! stale legacy block still present at {legacy} — re-run install/update to migrate")
     if p["registry"].exists():
         data = read_registry(p["registry"])
         print(f"registry schema: {data.get('schema')}  updated: {data.get('updated_utc','?')}")

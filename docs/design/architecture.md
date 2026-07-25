@@ -42,17 +42,26 @@ optional — present when the target repo has them, absent otherwise.
 
 ## Install flow (ADR-0003, ADR-0004)
 
-`aios/install/horizon_project_planning_package.py` (`install`/`uninstall`/`status`; cross-platform,
-stdlib-only) is run from a clone placed at `$HORIZON_SYSTEM/deployed_packages/<name>/`. `install`:
+`aios/install/horizon_project_planning_package.py` (`install`/`update`/`uninstall`/`status`;
+cross-platform, stdlib-only) is run from a clone placed at
+`$HORIZON_SYSTEM/deployed_packages/<name>/`. `install`:
 
-1. copies `SKILL.md` + a copy of `core/` (as `kit/`) into `$HORIZON_SKILLS_BIN/project-plan/`;
+1. copies `SKILL.md` + a copy of `core/` (as `kit/`) into `$HORIZON_SYSTEM/skills_bin/project-plan/`;
 2. adds a row to the skills index;
-3. injects a marker-delimited terse context block into `projects/agents.md`;
+3. migrates away any stale marker block left at the pre-retarget location,
+   `$HORIZON_ROOT/projects/agents.md` (safe no-op if absent), then injects a marker-delimited terse
+   context block into `$HORIZON_ETC/horizon_aios_options_packages.local.md` — a root-scope,
+   machine-local file (created with a header if absent, git-ignored via `.git/info/exclude`) that the
+   OS root `agents.md` imports, so every agent — not just project-scope ones — discovers the package
+   (ADR-0009);
 4. materializes the admin `.local.` guide override (ADR-0006) and git-ignores it;
 5. registers the package in `$HORIZON_ETC/horizon_deployed_packages.local.json` (ADR-0004) — name,
-   version, `clone_path`, git `remotes[]`, `sync`, and a `payload` manifest for exact uninstall.
+   version, `clone_path`, git `remotes[]`, `sync`, and a `payload` manifest (including
+   `context_block_file`) for exact uninstall.
 
-`uninstall` reverses 1–3 and 5; it leaves the clone, the admin override, and any scaffolded plans.
+`update` re-pulls the deployment clone from upstream, then re-runs `install --force`, so the migration
+in step 3 also runs on every `update`. `uninstall` reverses 1–3 and 5; it leaves the clone, the admin
+override, and any scaffolded plans.
 
 ## Sync integration (ADR-0005)
 

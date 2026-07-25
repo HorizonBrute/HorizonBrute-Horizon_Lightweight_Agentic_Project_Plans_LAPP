@@ -27,17 +27,26 @@ $HORIZON_SYSTEM/
 
 ## What `install` does (idempotent)
 
-1. **Copies the skill payload** to `$HORIZON_SKILLS_BIN/project-plan/`: `SKILL.md` + `kit/` (a full copy
-   of `core/`), so the skill is self-contained on the target machine.
-2. **Registers a catalog row** in the machine-local `$HORIZON_SKILLS_BIN/index.local.md` (created from the tracked `index.md` header if absent, so columns match exactly; skips if present). Being untracked, this row is never reverted by the OS official (overwrite) lane, so the registration survives AIOS updates — the tracked `index.md` carries core skills only.
-3. **Injects a terse context pointer** — a marker-delimited block from `install/context_pointer.md` —
-   at the end of `$HORIZON_ROOT/projects/agents.md`, so every project-scope agent discovers the
-   feature. Kept to ~3 lines to respect the Horizon.AIOS terseness budget.
+1. **Copies the skill payload** to `$HORIZON_SYSTEM/skills_bin/project-plan/`: `SKILL.md` + `kit/` (a
+   full copy of `core/`), so the skill is self-contained on the target machine.
+2. **Registers a catalog row** in the machine-local `$HORIZON_SYSTEM/skills_bin/index.local.md` (created from the tracked `index.md` header if absent, so columns match exactly; skips if present). Being untracked, this row is never reverted by the OS official (overwrite) lane, so the registration survives AIOS updates — the tracked `index.md` carries core skills only.
+3. **Migrates, then injects, a terse context pointer** — a marker-delimited block from
+   `install/context_pointer.md`. It is written to
+   `$HORIZON_ETC/horizon_aios_options_packages.local.md` (created with a short header if absent), a
+   root-scope, machine-local file that the OS root `agents.md` imports — so every agent, not just
+   project-scope ones, discovers the feature. Before injecting, `install`/`update` first strip any
+   stale same-marker block left at the pre-retarget location, `$HORIZON_ROOT/projects/agents.md`, so
+   an upgraded machine never carries the block twice (safe no-op if that file has no block). Kept to
+   ~5 lines to respect the Horizon.AIOS terseness budget. The file is git-ignored via the containing
+   repo's `.git/info/exclude` (never the tracked `.gitignore`), so the official sync lane never
+   reverts it.
 4. **Registers the package** in `$HORIZON_ETC/horizon_deployed_packages.local.json`: name, version,
    `clone_path` (relative to `$HORIZON_ROOT`), the git `remotes` (incl. forks), `sync: true`, and a
-   `payload` manifest (what it deployed) for exact uninstall.
+   `payload` manifest (what it deployed, including `context_block_file`) for exact uninstall.
 
-`uninstall` reverses steps 1–4. `status` prints the registry and what is deployed.
+`uninstall` reverses steps 1–4, including stripping any lingering legacy block for a machine that
+never ran `install`/`update` after the retarget. `status` prints the registry and what is deployed,
+including whether a stale legacy block is still present.
 
 ## Registry ↔ sync integration
 
@@ -87,7 +96,9 @@ carries its own `PROJECT_PLAN_GUIDE.md`, so removing the feature never orphans l
 
 - The registry is `*.local.json` → machine-local: gitignored from OS canon (never rides the official
   lane) yet carried by the hourly personal backup sync (its name matches the `*local*` re-include).
-- The installer writes only inside `$HORIZON_SKILLS_BIN`, `$HORIZON_ETC`, and a managed block in
-  `projects/agents.md`. It does not touch privileged system dirs.
+- The installer writes only inside `$HORIZON_SYSTEM/skills_bin`, `$HORIZON_ETC` (including the managed
+  block in `horizon_aios_options_packages.local.md`), and — migration cleanup only, stripping the
+  package's own stale block — `$HORIZON_ROOT/projects/agents.md`. It does not touch privileged
+  system dirs.
 - `#midcost` is the skill's model-preference group. Adjust via `/model-prefs-assign` if your routing
   differs.
