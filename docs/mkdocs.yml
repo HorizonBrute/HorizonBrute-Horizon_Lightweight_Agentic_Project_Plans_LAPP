@@ -1,0 +1,57 @@
+site_name: "LAPP — Lightweight Agentic Project Plans"
+docs_dir: ..
+site_dir: ../../_lapp_site
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - search.suggest
+    - search.highlight
+
+nav:
+  - Home: README.md
+  - Documentation:
+      - Overview: docs/README.md
+      - Development & Release Model: docs/development.md
+      - Architecture: docs/design/architecture.md
+  - Lifecycle Kit:
+      - Kit Entry Point: core/README.md
+      - "1 · Setting Up a Project": core/lifecycle/01_setting_up_a_project.md
+      - "2 · Managing a Project": core/lifecycle/02_managing_a_project.md
+      - "3 · Closing a Project": core/lifecycle/03_closing_a_project.md
+  - Templates:
+      - Overview: core/templates/index.md
+      - Project Plan Guide: core/templates/PROJECT_PLAN_GUIDE.md
+      - Detail: core/templates/NNN_detail-SLUG.md
+      - Status: core/templates/NNN_status-SLUG.md
+      - Status Archive: core/templates/NNN_status_archive-SLUG.md
+      - Current Orientation: core/templates/NNN_current_orientation-SLUG.md
+      - Action Log: core/templates/NNN_action_log-SLUG.md
+      - Bugs & Technical Debt: core/templates/NNN_bugs_and_technical_debt-SLUG.md
+  - Decision Records:
+      - Overview: docs/decisions/index.md
+      - "ADR-0001 · Dual-Mode Package": docs/decisions/ADR-0001-dual-mode-package.md
+      - "ADR-0002 · Six-File Document Set": docs/decisions/ADR-0002-six-file-document-set.md
+      - "ADR-0003 · Python Cross-Platform Installer": docs/decisions/ADR-0003-python-cross-platform-installer.md
+      - "ADR-0004 · Deployed-Packages Registry": docs/decisions/ADR-0004-deployed-packages-registry.md
+      - "ADR-0005 · Sync Gate on Registry": docs/decisions/ADR-0005-sync-gate-on-registry.md
+      - "ADR-0006 · Local Override Layers": docs/decisions/ADR-0006-local-override-layers.md
+      - "ADR-0007 · Self-Contained Projects": docs/decisions/ADR-0007-self-contained-projects.md
+      - "ADR-0008 · Pull-Only Deployments": docs/decisions/ADR-0008-pull-only-deployments.md
+  - Worked Example:
+      - Overview: docs/examples/project_plans/index.md
+      - Project Plan Guide: docs/examples/project_plans/PROJECT_PLAN_GUIDE.md
+      - "Detail — API Rate Limiting": docs/examples/project_plans/001_detail-api_rate_limiting.md
+      - "Status — API Rate Limiting": docs/examples/project_plans/001_status-api_rate_limiting.md
+      - "Status Archive — API Rate Limiting": docs/examples/project_plans/001_status_archive-api_rate_limiting.md
+      - "Current Orientation — API Rate Limiting": docs/examples/project_plans/001_current_orientation-api_rate_limiting.md
+      - "Action Log — API Rate Limiting": docs/examples/project_plans/001_action_log-api_rate_limiting.md
+      - "Bugs & Technical Debt — API Rate Limiting": docs/examples/project_plans/001_bugs_and_technical_debt-api_rate_limiting.md
+  - AIOS Package:
+      - Installation: aios/INSTALL.md
+      - Context Pointer: aios/install/context_pointer.md
+      - "project-plan Skill": aios/skill/project-plan/SKILL.md
